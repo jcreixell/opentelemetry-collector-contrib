@@ -39,6 +39,7 @@ connector/otlpjsonconnector/                                     @open-telemetry
 connector/roundrobinconnector/                                   @open-telemetry/collector-contrib-approvers @bogdandrutu
 connector/routingconnector/                                      @open-telemetry/collector-contrib-approvers @TylerHelmuth @evan-bradley @edmocosta @bogdandrutu
 connector/servicegraphconnector/                                 @open-telemetry/collector-contrib-approvers @mapno @JaredTan95
+connector/topologyconnector/                                     @open-telemetry/collector-contrib-approvers @jcreixell
 connector/signaltometricsconnector/                              @open-telemetry/collector-contrib-approvers @ChrsMark @lahsivjar
 connector/slowsqlconnector/                                      @open-telemetry/collector-contrib-approvers @JaredTan95 @Frapschen @atoulme
 connector/spanmetricsconnector/                                  @open-telemetry/collector-contrib-approvers @portertech @Frapschen @iblancasa

@@ -1,0 +1,40 @@
+type: topology
+display_name: Topology Connector
+
+status:
+  class: connector
+  stability:
+    development: [traces_to_metrics]
+  distributions: [contrib]
+  codeowners:
+    active: [jcreixell]
+
+tests:
+  config:
+
+telemetry:
+  metrics:
+    connector_topology_dropped_spans:
+      description: Number of spans dropped when trying to add edges
+      unit: "1"
+      enabled: true
+      stability: development
+      sum:
+        value_type: int
+        monotonic: true
+    connector_topology_expired_edges:
+      description: Number of in-flight edges that expired before their matching span arrived
+      unit: "1"
+      enabled: true
+      stability: development
+      sum:
+        value_type: int
+        monotonic: true
+    connector_topology_total_edges:
+      description: Total number of topology edges currently known
+      unit: "1"
+      enabled: true
+      stability: development
+      sum:
+        value_type: int
+        monotonic: true

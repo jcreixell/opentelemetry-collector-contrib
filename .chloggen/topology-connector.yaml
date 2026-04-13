@@ -1,0 +1,15 @@
+change_type: new_component
+
+component: connector/topology
+
+note: Add topology connector that emits a `topology_edge` gauge metric for each discovered service-to-service edge, with optional persistent storage to survive restarts under head-based sampling.
+
+issues: []
+
+subtext: |
+  The connector matches client/server span pairs from traces and emits:
+  `topology_edge{source_service_name, source_service_namespace, destination_service_name, destination_service_namespace} 1`
+  Edge endpoints use both `service.name` and `service.namespace` (OTel entity identifying attributes).
+  Edges are retained for a configurable TTL (default 7 days) and can be persisted to disk via the `file_storage` extension.
+
+change_logs: [user]
