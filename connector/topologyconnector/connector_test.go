@@ -56,7 +56,8 @@ func defaultTestConfig() *Config {
 
 // buildTrace creates a minimal trace with a client span from srcService and a
 // server span from dstService, linked by traceID/spanID.
-func buildTrace(srcService, srcNS, dstService, dstNS string) ptrace.Traces {
+// Extra key/value pairs are added as resource attributes to the client span.
+func buildTrace(srcService, srcNS, dstService, dstNS string, srcResourceAttrs ...string) ptrace.Traces {
 	td := ptrace.NewTraces()
 	traceID := pcommon.TraceID([16]byte{1})
 	spanID := pcommon.SpanID([8]byte{1})
@@ -66,6 +67,9 @@ func buildTrace(srcService, srcNS, dstService, dstNS string) ptrace.Traces {
 	clientRS.Resource().Attributes().PutStr("service.name", srcService)
 	if srcNS != "" {
 		clientRS.Resource().Attributes().PutStr("service.namespace", srcNS)
+	}
+	for i := 0; i+1 < len(srcResourceAttrs); i += 2 {
+		clientRS.Resource().Attributes().PutStr(srcResourceAttrs[i], srcResourceAttrs[i+1])
 	}
 	clientSpan := clientRS.ScopeSpans().AppendEmpty().Spans().AppendEmpty()
 	clientSpan.SetKind(ptrace.SpanKindClient)
@@ -117,6 +121,64 @@ func TestConsumeTraces_NamespaceDefaults(t *testing.T) {
 	_, ok := conn.edges[edgeKey{SourceName: "svc-a", SourceNamespace: "", DestName: "svc-b", DestNamespace: ""}]
 	conn.edgeMu.RUnlock()
 	assert.True(t, ok)
+}
+
+func TestConsumeTraces_DimensionsCaptured(t *testing.T) {
+	cfg := defaultTestConfig()
+	cfg.Dimensions = []Dimension{
+		{Name: "deployment.environment", Default: "unknown"},
+	}
+
+	sink := &consumertest.MetricsSink{}
+	conn := newTestConnector(t, cfg, sink)
+	host := storagetest.NewStorageHost()
+	require.NoError(t, conn.Start(context.Background(), host))
+	t.Cleanup(func() { require.NoError(t, conn.Shutdown(context.Background())) })
+
+	td := buildTrace("service-a", "ns", "service-b", "ns",
+		"deployment.environment", "production")
+	require.NoError(t, conn.ConsumeTraces(context.Background(), td))
+
+	conn.edgeMu.RLock()
+	var found edgeKey
+	var ok bool
+	for k := range conn.edges {
+		found = k
+		ok = true
+	}
+	conn.edgeMu.RUnlock()
+
+	require.True(t, ok, "edge should be recorded")
+	assert.Equal(t, "production", found.Dimensions)
+}
+
+func TestConsumeTraces_DimensionDefaultApplied(t *testing.T) {
+	cfg := defaultTestConfig()
+	cfg.Dimensions = []Dimension{
+		{Name: "deployment.environment", Default: "unknown"},
+	}
+
+	sink := &consumertest.MetricsSink{}
+	conn := newTestConnector(t, cfg, sink)
+	host := storagetest.NewStorageHost()
+	require.NoError(t, conn.Start(context.Background(), host))
+	t.Cleanup(func() { require.NoError(t, conn.Shutdown(context.Background())) })
+
+	// No deployment.environment attribute — default should be applied.
+	td := buildTrace("service-a", "ns", "service-b", "ns")
+	require.NoError(t, conn.ConsumeTraces(context.Background(), td))
+
+	conn.edgeMu.RLock()
+	var found edgeKey
+	var ok bool
+	for k := range conn.edges {
+		found = k
+		ok = true
+	}
+	conn.edgeMu.RUnlock()
+
+	require.True(t, ok, "edge should be recorded")
+	assert.Equal(t, "unknown", found.Dimensions)
 }
 
 func TestConsumeTraces_IncompleteSpanPair(t *testing.T) {

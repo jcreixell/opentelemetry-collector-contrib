@@ -10,8 +10,21 @@ import (
 	"go.opentelemetry.io/collector/component"
 )
 
+// Dimension is an extra label to attach to every topology_edge data point,
+// sourced from the client span's resource attributes.
+type Dimension struct {
+	// Name is the OTel attribute key (e.g. "deployment.environment").
+	Name string `mapstructure:"name"`
+	// Default is the label value emitted when the attribute is absent.
+	Default string `mapstructure:"default"`
+}
+
 // Config defines the configuration for the topology connector.
 type Config struct {
+	// Dimensions is a list of extra resource attributes to include as labels
+	// on the topology_edge metric. Attributes are read from the client span's
+	// resource. Common examples: "deployment.environment", "k8s.cluster.name".
+	Dimensions []Dimension `mapstructure:"dimensions"`
 	// StorageID is the component ID of a storage extension used to persist
 	// discovered edges across collector restarts. When nil edges are held in
 	// memory only and lost on restart.

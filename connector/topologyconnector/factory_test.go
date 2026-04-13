@@ -54,3 +54,17 @@ func TestFactoryCreateTracesToMetrics_WithRouter(t *testing.T) {
 	_, err := factory.CreateTracesToMetrics(context.Background(), params, cfg, router)
 	require.NoError(t, err)
 }
+
+func TestFactoryCreateTracesToLogs(t *testing.T) {
+	factory := NewFactory()
+	cfg := factory.CreateDefaultConfig()
+	params := connectortest.NewNopSettings(metadata.Type)
+	sink := &consumertest.LogsSink{}
+
+	conn, err := factory.CreateTracesToLogs(context.Background(), params, cfg, sink)
+	require.NoError(t, err)
+
+	host := componenttest.NewNopHost()
+	require.NoError(t, conn.Start(context.Background(), host))
+	require.NoError(t, conn.Shutdown(context.Background()))
+}

@@ -31,31 +31,62 @@ const (
 	metricDesc      = "Presence of a topology edge between two services (value is always 1)"
 )
 
-// edgeKey uniquely identifies a directed service-to-service edge using the
-// OTel entity identifying attributes: service.name + service.namespace.
+// edgeKey uniquely identifies a directed service-to-service edge.
+// Dimensions holds encoded extra dimension values in config order.
 type edgeKey struct {
 	SourceName      string
 	SourceNamespace string
 	DestName        string
 	DestNamespace   string
+	Dimensions      string
 }
 
 // encode returns a NUL-separated string suitable as a map key or storage key.
 func (k edgeKey) encode() string {
-	return strings.Join([]string{k.SourceName, k.SourceNamespace, k.DestName, k.DestNamespace}, "\x00")
+	if k.Dimensions == "" {
+		return strings.Join([]string{k.SourceName, k.SourceNamespace, k.DestName, k.DestNamespace}, "\x00")
+	}
+	return strings.Join([]string{k.SourceName, k.SourceNamespace, k.DestName, k.DestNamespace, k.Dimensions}, "\x00")
 }
 
 func decodeEdgeKey(s string) (edgeKey, error) {
-	parts := strings.SplitN(s, "\x00", 4)
-	if len(parts) != 4 {
+	// SplitN with 5 so that the Dimensions field (which may itself contain
+	// NULs when multiple dimensions are configured) is kept intact as a
+	// single string in parts[4].
+	parts := strings.SplitN(s, "\x00", 5)
+	if len(parts) < 4 {
 		return edgeKey{}, fmt.Errorf("malformed edge key: %q", s)
 	}
-	return edgeKey{
-		SourceName:      parts[0],
-		SourceNamespace: parts[1],
-		DestName:        parts[2],
-		DestNamespace:   parts[3],
-	}, nil
+	k := edgeKey{SourceName: parts[0], SourceNamespace: parts[1], DestName: parts[2], DestNamespace: parts[3]}
+	if len(parts) == 5 {
+		k.Dimensions = parts[4]
+	}
+	return k, nil
+}
+
+// encodeDimensions returns the NUL-joined dimension values for the given edge
+// in the order of the configured dimensions.
+func encodeDimensions(dims []Dimension, values map[string]string) string {
+	if len(dims) == 0 {
+		return ""
+	}
+	parts := make([]string, len(dims))
+	for i, d := range dims {
+		if v, ok := values[d.Name]; ok {
+			parts[i] = v
+		} else {
+			parts[i] = d.Default
+		}
+	}
+	return strings.Join(parts, "\x00")
+}
+
+// splitDimensions splits the NUL-joined dimension string back into individual values.
+func splitDimensions(s string) []string {
+	if s == "" {
+		return nil
+	}
+	return strings.Split(s, "\x00")
 }
 
 // persistedEdge is the on-disk representation of a topology edge.
@@ -155,8 +186,15 @@ func (c *topologyConnector) ConsumeTraces(_ context.Context, td ptrace.Traces) e
 		if !ok {
 			continue
 		}
-		// namespace defaults to empty string, which is a valid value
 		serviceNamespace, _ := getStringAttr(rAttrs, string(conventions.ServiceNamespaceKey))
+
+		// Capture configured extra dimensions from the resource attributes.
+		dims := make(map[string]string, len(c.config.Dimensions))
+		for _, d := range c.config.Dimensions {
+			if v, ok := getStringAttr(rAttrs, d.Name); ok {
+				dims[d.Name] = v
+			}
+		}
 
 		for j := 0; j < rSpans.ScopeSpans().Len(); j++ {
 			spans := rSpans.ScopeSpans().At(j).Spans()
@@ -168,6 +206,9 @@ func (c *topologyConnector) ConsumeTraces(_ context.Context, td ptrace.Traces) e
 					if _, err := c.inFlight.UpsertEdge(key, func(e *internalstore.Edge) {
 						e.ClientService = serviceName
 						e.ClientNamespace = serviceNamespace
+						for k, v := range dims {
+							e.Dimensions[k] = v
+						}
 					}); err != nil {
 						c.telemetry.ConnectorTopologyDroppedSpans.Add(context.Background(), 1)
 					}
@@ -192,6 +233,7 @@ func (c *topologyConnector) onEdgeComplete(e *internalstore.Edge) {
 		SourceNamespace: e.ClientNamespace,
 		DestName:        e.ServerService,
 		DestNamespace:   e.ServerNamespace,
+		Dimensions:      encodeDimensions(c.config.Dimensions, e.Dimensions),
 	}
 	isNew := false
 	c.edgeMu.Lock()
@@ -213,8 +255,6 @@ func (c *topologyConnector) onEdgeComplete(e *internalstore.Edge) {
 }
 
 // onEdgeExpire is called when a span pair times out without completing.
-// An incomplete pair does not constitute evidence of an edge so we simply
-// update the telemetry counter and discard it.
 func (c *topologyConnector) onEdgeExpire(_ *internalstore.Edge) {
 	c.telemetry.ConnectorTopologyExpiredEdges.Add(context.Background(), 1)
 }
@@ -298,6 +338,15 @@ func (c *topologyConnector) emitMetrics(ctx context.Context) error {
 		dp.Attributes().PutStr("source_service_namespace", k.SourceNamespace)
 		dp.Attributes().PutStr("destination_service_name", k.DestName)
 		dp.Attributes().PutStr("destination_service_namespace", k.DestNamespace)
+		// Emit configured extra dimensions.
+		if k.Dimensions != "" {
+			vals := splitDimensions(k.Dimensions)
+			for i, d := range c.config.Dimensions {
+				if i < len(vals) {
+					dp.Attributes().PutStr(d.Name, vals[i])
+				}
+			}
+		}
 	}
 
 	return c.next.ConsumeMetrics(ctx, md)
@@ -338,7 +387,7 @@ func (c *topologyConnector) loadEdges(ctx context.Context) error {
 	for encoded, pe := range raw {
 		lastSeen := time.Unix(pe.LastSeenUnix, 0)
 		if lastSeen.Before(cutoff) {
-			continue // drop already-expired edges at load time
+			continue
 		}
 		k, err := decodeEdgeKey(encoded)
 		if err != nil {
@@ -367,8 +416,6 @@ func (c *topologyConnector) saveEdges(ctx context.Context) error {
 }
 
 // getStorageClient retrieves a storage.Client from the host extensions.
-// Returns a nop client when storageID is nil so the connector works without
-// any storage extension configured.
 func getStorageClient(ctx context.Context, host component.Host, storageID *component.ID, id component.ID) (storage.Client, error) {
 	if storageID == nil {
 		return storage.NewNopClient(), nil

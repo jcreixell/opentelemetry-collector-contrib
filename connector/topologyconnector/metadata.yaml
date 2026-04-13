@@ -4,7 +4,7 @@ display_name: Topology Connector
 status:
   class: connector
   stability:
-    development: [traces_to_metrics]
+    development: [traces_to_metrics, traces_to_logs]
   distributions: [contrib]
   codeowners:
     active: [jcreixell]

@@ -20,12 +20,17 @@ type Edge struct {
 	ServerService   string
 	ServerNamespace string
 
+	// Dimensions holds the values of any extra dimensions configured by the
+	// user (e.g. deployment.environment), captured from the client resource.
+	Dimensions map[string]string
+
 	expiration time.Time
 }
 
 func newEdge(key Key, ttl time.Duration) *Edge {
 	return &Edge{
 		Key:        key,
+		Dimensions: make(map[string]string),
 		expiration: time.Now().Add(ttl),
 	}
 }

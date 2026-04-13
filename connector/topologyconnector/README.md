@@ -2,15 +2,25 @@
 
 | Status                   |           |
 | ------------------------ | --------- |
-| Stability                | [development]: traces_to_metrics |
-| Supported pipeline types | traces to metrics |
+| Stability                | [development]: traces_to_metrics, traces_to_logs |
+| Supported pipeline types | traces to metrics, traces to logs |
 | Distributions            | [contrib] |
 
 ## Overview
 
-The Topology Connector consumes traces and emits a gauge metric for each
-discovered service-to-service edge. The metric value is always `1`; its
-presence indicates the edge is known.
+The Topology Connector consumes traces and produces two kinds of output:
+
+- **Metrics** (`traces_to_metrics`): a gauge metric for each discovered
+  service-to-service edge. The value is always `1`; its presence indicates the
+  edge is active.
+- **Lifecycle events** (`traces_to_logs`): structured log records emitted when
+  an edge is first discovered or when it expires due to TTL.
+
+Edges are discovered by matching `client`/`server` (or `producer`/`consumer`)
+span pairs within the same trace — the same mechanism used by
+[`servicegraphconnector`](../servicegraphconnector/).
+
+### Metric output
 
 ```
 topology_edge{
@@ -21,20 +31,23 @@ topology_edge{
 } 1
 ```
 
-Edge endpoint labels use both `service.name` and `service.namespace`, the
-[OTel entity identifying attributes][otep-0264] for a `service` entity. This
-makes the metric directly joinable with resource-attributed metrics from
-Prometheus or OTLP pipelines.
-
-### How it works
-
-Edges are discovered by matching `client`/`server` (or `producer`/`consumer`)
-span pairs within the same trace — the same mechanism used by
-[`servicegraphconnector`](../servicegraphconnector/). Once both sides of a
-span pair are observed, the edge is recorded as confirmed.
+Additional labels can be added via the `dimensions` config (see below).
 
 The connector re-emits the full set of known edges every `emit_interval` so
 that the downstream metric store always has fresh data points.
+
+### Lifecycle log events
+
+When `traces_to_logs` is configured, the connector emits a `plog.LogRecord`
+for each edge state change:
+
+| `event.name` | When |
+|---|---|
+| `topology.edge.discovered` | First time a span pair confirms a new edge |
+| `topology.edge.expired` | An edge is evicted because it exceeded `edge_ttl` |
+
+Each log record carries the same service/namespace/dimension attributes as the
+metric. The body is the event name string.
 
 ### Persistence and stickiness
 
@@ -60,20 +73,53 @@ connectors:
     store:
       max_items: 1000               # max in-flight span pairs being correlated
       ttl: 2s                       # how long to wait for the matching span
+    dimensions:                     # optional extra labels sourced from client resource attrs
+      - name: deployment.environment
+        default: unknown
 
 extensions:
   file_storage:
     directory: /var/lib/otelcol/topology
 ```
 
-## Relationship to `servicegraphconnector`
+### `dimensions`
 
-The Topology Connector is intentionally simpler than `servicegraphconnector`:
+Each entry in `dimensions` names a resource attribute to capture from the
+**client** span's resource. The value is added as a metric label and as an
+attribute on lifecycle log records.
+
+If the attribute is absent on a given span, the configured `default` value is
+used (empty string if `default` is omitted). Dimensions are evaluated in config
+order; the order is preserved in the metric and log output.
+
+Example — tag edges by deployment environment:
+
+```yaml
+connectors:
+  topology:
+    dimensions:
+      - name: deployment.environment
+        default: unknown
+```
+
+This produces:
+
+```
+topology_edge{
+  source_service_name="checkout",
+  source_service_namespace="shop",
+  destination_service_name="payment",
+  destination_service_namespace="shop",
+  deployment.environment="production"
+} 1
+```
+
+## Relationship to `servicegraphconnector`
 
 | | `servicegraphconnector` | `topologyconnector` |
 |---|---|---|
-| Output | Request counts, latency histograms, error rates | Edge presence only (`topology_edge=1`) |
-| Edge identity | `service.name` only | `service.name` + `service.namespace` |
+| Output | Request counts, latency histograms, error rates | Edge presence gauge + lifecycle log events |
+| Edge identity | `service.name` only | `service.name` + `service.namespace` + configurable dimensions |
 | Persistence | None (in-memory) | Optional via storage extension |
 | Edge lifetime | Minutes (in-memory cache) | Configurable, default 7 days |
 
