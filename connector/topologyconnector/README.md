@@ -62,6 +62,13 @@ infrequently. The connector addresses this by:
    `edge_ttl` (default 7 days) are evicted. This allows the topology to heal
    when services are decommissioned.
 
+> **Note (`traces_to_logs`):** the logs connector does not persist its edge
+> state across restarts. After a restart, every edge that resumes generating
+> traffic will produce a fresh `topology.edge.discovered` event. Edges that
+> stopped generating traffic before the restart will never produce a
+> `topology.edge.expired` event — the receiving system should apply its own
+> TTL to handle stale edges.
+
 ## Configuration
 
 ```yaml
