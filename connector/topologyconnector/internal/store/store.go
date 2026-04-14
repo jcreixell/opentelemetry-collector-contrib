@@ -52,6 +52,13 @@ func (s *Store) Len() int {
 // default TTL. If the Edge is complete after the update it is removed and
 // onComplete is called.
 func (s *Store) UpsertEdge(key Key, update Callback) (isNew bool, err error) {
+	var completed *Edge
+	defer func() {
+		if completed != nil {
+			s.onComplete(completed)
+		}
+	}()
+
 	s.mtx.Lock()
 	defer s.mtx.Unlock()
 
@@ -59,9 +66,9 @@ func (s *Store) UpsertEdge(key Key, update Callback) (isNew bool, err error) {
 		edge := storedEdge.Value.(*Edge)
 		update(edge)
 		if edge.isComplete() {
-			s.onComplete(edge)
 			delete(s.m, key)
 			s.l.Remove(storedEdge)
+			completed = edge
 		}
 		return false, nil
 	}
@@ -70,7 +77,7 @@ func (s *Store) UpsertEdge(key Key, update Callback) (isNew bool, err error) {
 	update(edge)
 
 	if edge.isComplete() {
-		s.onComplete(edge)
+		completed = edge
 		return true, nil
 	}
 
@@ -85,23 +92,27 @@ func (s *Store) UpsertEdge(key Key, update Callback) (isNew bool, err error) {
 
 // Expire evicts all expired items from the store.
 func (s *Store) Expire() {
+	var expired []*Edge
+	defer func() {
+		for _, e := range expired {
+			s.onExpire(e)
+		}
+	}()
+
 	s.mtx.Lock()
 	defer s.mtx.Unlock()
-	for s.tryEvictHead() {
-	}
-}
 
-func (s *Store) tryEvictHead() bool {
-	head := s.l.Front()
-	if head == nil {
-		return false
+	for {
+		head := s.l.Front()
+		if head == nil {
+			break
+		}
+		headEdge := head.Value.(*Edge)
+		if !headEdge.isExpired() {
+			break
+		}
+		expired = append(expired, headEdge)
+		delete(s.m, headEdge.Key)
+		s.l.Remove(head)
 	}
-	headEdge := head.Value.(*Edge)
-	if !headEdge.isExpired() {
-		return false
-	}
-	s.onExpire(headEdge)
-	delete(s.m, headEdge.Key)
-	s.l.Remove(head)
-	return true
 }
