@@ -118,13 +118,16 @@ topology_edge{
 
 | | `servicegraphconnector` | `topologyconnector` |
 |---|---|---|
-| Output | Request counts, latency histograms, error rates | Edge presence gauge + lifecycle log events |
-| Edge identity | `service.name` only | `service.name` + `service.namespace` + configurable dimensions |
-| Persistence | None (in-memory) | Optional via storage extension |
-| Edge lifetime | Minutes (in-memory cache) | Configurable, default 7 days |
+| Output | Request counts, latency histograms, error rates, virtual node edges | Edge presence gauge + lifecycle log events |
+| Edge identity | `service.name` + configurable `dimensions` (prefixed `client_`/`server_`) | `service.name` + `service.namespace` + configurable dimensions |
+| Persistence | None (in-memory only) | Optional via storage extension |
+| Edge lifetime | Configurable (default 2s TTL in-flight store; ~15 min metric series cache) | Configurable, default 7 days |
+| Virtual nodes | Yes (uninstrumented upstreams via `peer.service`, `db.name`, etc.) | No |
+| Messaging spans | `producer`/`consumer` → `MessagingSystem` connection type | `producer`/`consumer` treated same as `client`/`server` |
 
-Use `servicegraphconnector` for RED metrics; use `topologyconnector` for
-entity graph construction and service dependency maps.
+Use `servicegraphconnector` for RED metrics and virtual node detection; use
+`topologyconnector` for long-lived entity graph construction and service
+dependency maps with namespace-aware edge identity.
 
 [otep-0264]: https://github.com/open-telemetry/oteps/blob/main/text/entities/0264-resource-and-entities.md
 [development]: https://github.com/open-telemetry/opentelemetry-collector#development
