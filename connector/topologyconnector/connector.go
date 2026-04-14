@@ -121,13 +121,14 @@ func newConnector(params connector.Settings, cfg *Config, next consumer.Metrics)
 		return nil, err
 	}
 	return &topologyConnector{
-		config:     cfg,
-		logger:     params.Logger,
-		id:         params.ID,
-		next:       next,
-		edges:      make(map[edgeKey]time.Time),
-		shutdownCh: make(chan struct{}),
-		telemetry:  tb,
+		config:        cfg,
+		logger:        params.Logger,
+		id:            params.ID,
+		next:          next,
+		edges:         make(map[edgeKey]time.Time),
+		shutdownCh:    make(chan struct{}),
+		telemetry:     tb,
+		storageClient: storage.NewNopClient(),
 	}, nil
 }
 
@@ -163,13 +164,10 @@ func (c *topologyConnector) Shutdown(ctx context.Context) error {
 	close(c.shutdownCh)
 	c.wg.Wait()
 
-	if c.storageClient != nil {
-		if err := c.saveEdges(ctx); err != nil {
-			c.logger.Error("failed to persist edges on shutdown", zap.Error(err))
-		}
-		return c.storageClient.Close(ctx)
+	if err := c.saveEdges(ctx); err != nil {
+		c.logger.Error("failed to persist edges on shutdown", zap.Error(err))
 	}
-	return nil
+	return c.storageClient.Close(ctx)
 }
 
 func (*topologyConnector) Capabilities() consumer.Capabilities {
