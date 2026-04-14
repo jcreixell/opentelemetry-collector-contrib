@@ -108,19 +108,23 @@ func (c *logsConnector) ConsumeTraces(_ context.Context, td ptrace.Traces) error
 				switch span.Kind() {
 				case ptrace.SpanKindClient, ptrace.SpanKindProducer:
 					key := internalstore.NewKey(span.TraceID(), span.SpanID())
-					_, _ = c.inFlight.UpsertEdge(key, func(e *internalstore.Edge) {
+					if _, err := c.inFlight.UpsertEdge(key, func(e *internalstore.Edge) {
 						e.ClientService = serviceName
 						e.ClientNamespace = serviceNamespace
 						for k, v := range dims {
 							e.Dimensions[k] = v
 						}
-					})
+					}); err != nil {
+						c.logger.Warn("dropped span: in-flight store is full", zap.Error(err))
+					}
 				case ptrace.SpanKindServer, ptrace.SpanKindConsumer:
 					key := internalstore.NewKey(span.TraceID(), span.ParentSpanID())
-					_, _ = c.inFlight.UpsertEdge(key, func(e *internalstore.Edge) {
+					if _, err := c.inFlight.UpsertEdge(key, func(e *internalstore.Edge) {
 						e.ServerService = serviceName
 						e.ServerNamespace = serviceNamespace
-					})
+					}); err != nil {
+						c.logger.Warn("dropped span: in-flight store is full", zap.Error(err))
+					}
 				}
 			}
 		}
