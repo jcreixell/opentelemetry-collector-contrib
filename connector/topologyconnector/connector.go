@@ -189,10 +189,13 @@ func (c *topologyConnector) ConsumeTraces(_ context.Context, td ptrace.Traces) e
 		serviceNamespace, _ := getStringAttr(rAttrs, string(conventions.ServiceNamespaceKey))
 
 		// Capture configured extra dimensions from the resource attributes.
-		dims := make(map[string]string, len(c.config.Dimensions))
-		for _, d := range c.config.Dimensions {
-			if v, ok := getStringAttr(rAttrs, d.Name); ok {
-				dims[d.Name] = v
+		var dims map[string]string
+		if len(c.config.Dimensions) > 0 {
+			dims = make(map[string]string, len(c.config.Dimensions))
+			for _, d := range c.config.Dimensions {
+				if v, ok := getStringAttr(rAttrs, d.Name); ok {
+					dims[d.Name] = v
+				}
 			}
 		}
 
