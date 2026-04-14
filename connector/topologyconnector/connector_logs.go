@@ -216,8 +216,9 @@ func (c *logsConnector) buildLogRecord(eventName string, k edgeKey, severity plo
 	sl.Scope().SetName(metadata.ScopeName)
 
 	lr := sl.LogRecords().AppendEmpty()
-	lr.SetTimestamp(pcommon.NewTimestampFromTime(time.Now()))
-	lr.SetObservedTimestamp(pcommon.NewTimestampFromTime(time.Now()))
+	now := pcommon.NewTimestampFromTime(time.Now())
+	lr.SetTimestamp(now)
+	lr.SetObservedTimestamp(now)
 	lr.SetSeverityNumber(severity)
 	lr.Body().SetStr(eventName)
 
