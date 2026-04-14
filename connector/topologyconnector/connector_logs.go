@@ -138,12 +138,11 @@ func (c *logsConnector) onEdgeComplete(e *internalstore.Edge) {
 	}
 
 	c.edgeMu.Lock()
-	_, isNew := c.edges[k]
-	isNew = !isNew
+	_, exists := c.edges[k]
 	c.edges[k] = time.Now()
 	c.edgeMu.Unlock()
 
-	if !isNew {
+	if exists {
 		return
 	}
 
