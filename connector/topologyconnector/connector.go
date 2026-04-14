@@ -355,16 +355,22 @@ func (c *topologyConnector) emitMetrics(ctx context.Context) error {
 
 func (c *topologyConnector) evictStaleEdges() {
 	cutoff := time.Now().Add(-c.config.EdgeTTL)
+	var evicted []edgeKey
+
 	c.edgeMu.Lock()
-	defer c.edgeMu.Unlock()
 	for k, lastSeen := range c.edges {
 		if lastSeen.Before(cutoff) {
 			delete(c.edges, k)
-			c.logger.Debug("evicted stale topology edge",
-				zap.String("src", k.SourceName),
-				zap.String("dst", k.DestName),
-			)
+			evicted = append(evicted, k)
 		}
+	}
+	c.edgeMu.Unlock()
+
+	for _, k := range evicted {
+		c.logger.Debug("evicted stale topology edge",
+			zap.String("src", k.SourceName),
+			zap.String("dst", k.DestName),
+		)
 	}
 }
 
